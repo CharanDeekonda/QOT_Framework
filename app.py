@@ -15,22 +15,27 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS ---
+# --- ADAPTIVE CSS ---
 st.markdown("""
 <style>
-    /* Main Background */
-    .stApp { background-color: #0e1117; }
+    /* REMOVE TOP WHITE SPACE */
     .block-container {
         padding-top: 1.5rem !important;
         padding-bottom: 1rem !important;
         margin-top: 0rem !important;
     }
     
-    /* White Border around the Map */
+    /* Hide the thin top header line */
+    header {
+        visibility: hidden;
+    }
+    
+    /* Map Container Border - Neutral Gray to look good in both modes */
     div[data-testid="stDeckGlJsonChart"] {
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid rgba(128, 128, 128, 0.5);
         border-radius: 8px;
         padding: 5px;
+        background-color: #0e1117; /* Keeps the map frame dark so it blends with the dark map */
     }
 
     /* Button Styling */
@@ -41,12 +46,7 @@ st.markdown("""
         height: 3em;
         background-color: #ff4b4b;
         color: white;
-    }
-    
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: #111827;
-        border-right: 1px solid #374151;
+        border: none;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -167,21 +167,25 @@ def render_map(coords, conns, mode):
 
     view_state = pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom, pitch=30)
 
+    # --- MAP STYLING STRATEGY ---
+    # We use a Dark Map with Bright Cyan Text.
+    # This ensures the map looks good on both White and Dark app themes.
+    
     layer_lines = pdk.Layer(
         "LineLayer",
         lines_data,
         get_source_position="source",
         get_target_position="target",
-        get_color=[0, 255, 100],
+        get_color=[0, 255, 100], # Bright Green Lines
         get_width=3,
-        pickable=True, # Critical for hover
+        pickable=True, 
     )
     
     layer_nodes = pdk.Layer(
         "ScatterplotLayer",
         nodes_data,
         get_position="coordinates",
-        get_color=[255, 50, 50],
+        get_color=[255, 50, 50], # Red Dots
         get_radius=20000 if mode == "US" else 5000,
         pickable=True,
     )
@@ -191,19 +195,18 @@ def render_map(coords, conns, mode):
         nodes_data,
         get_position="coordinates",
         get_text="name",
-        get_color=[255, 255, 255],
-        get_size=15,
+        get_color=[0, 255, 255],   # CYAN TEXT (Visible on Dark Map)
+        get_size=18,
         get_alignment_baseline="'bottom'",
     )
 
     return pdk.Deck(
         layers=[layer_lines, layer_nodes, layer_text],
         initial_view_state=view_state,
-        map_style="mapbox://styles/mapbox/satellite-v9",
-        # Custom Tooltip showing Signal/Weights
+        map_style="mapbox://styles/mapbox/dark-v10", # Always Dark Map (High Contrast)
         tooltip={
             "html": "<b>Route:</b> {name}<br/><b>Type:</b> {type}<br/><b>Signal Loss:</b> {loss}",
-            "style": {"backgroundColor": "steelblue", "color": "white"}
+            "style": {"backgroundColor": "#0f172a", "color": "white", "border": "1px solid #00ff62"}
         },
         height=400
     )
@@ -291,7 +294,7 @@ if analyze:
             df = pd.DataFrame(results)
             best = df.loc[df['GSNR (dB)'].idxmax()]
             
-            # --- NORMAL UI RESULTS (Reverted from Custom HTML) ---
+            # --- NORMAL UI RESULTS ---
             st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
             
             m1, m2, m3 = st.columns(3)
@@ -300,7 +303,7 @@ if analyze:
             with m2:
                 st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
             with m3:
-                st.metric(label="Signal Status", value=best['Status'].split()[1]) # Extracts 'Excellent' from '🟢 Excellent'
+                st.metric(label="Signal Status", value=best['Status'].split()[1])
 
             # DATA TABLE
             st.markdown("#### 📊 Comparative Route Analysis")
