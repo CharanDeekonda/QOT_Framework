@@ -7,45 +7,84 @@ import time
 import networkx as nx
 import pydeck as pdk 
 
+# --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="QOT Framework", 
+    page_icon="📡", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- CUSTOM CSS ---
+st.markdown("""
+<style>
+    /* Main Background */
+    .stApp { background-color: #0e1117; }
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
+        margin-top: 0rem !important;
+    }
+    
+    /* White Border around the Map */
+    div[data-testid="stDeckGlJsonChart"] {
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 8px;
+        padding: 5px;
+    }
+
+    /* Button Styling */
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: bold;
+        height: 3em;
+        background-color: #ff4b4b;
+        color: white;
+    }
+    
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #111827;
+        border-right: 1px solid #374151;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- CONFIGURATION ---
 MODEL_PATH = "models/saved_models/qot_model.keras"
 MAX_PATH_LENGTH = 42
-
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="QOT_Framework", page_icon="📡", layout="wide")
 
 # --- LOAD MODEL ---
 @st.cache_resource
 def load_model():
     return tf.keras.models.load_model(MODEL_PATH)
 
-model = load_model()
+try:
+    model = load_model()
+except Exception as e:
+    st.error(f"Error loading model: {e}. Please ensure 'models/saved_models/qot_model.keras' exists.")
+    st.stop()
 
-# --- 1. GEOSPATIAL DATA (REAL GPS COORDINATES) ---
-CITY_COORDS = {
-    "New York": [-74.0060, 40.7128],
-    "Washington DC": [-77.0369, 38.9072],
-    "Chicago": [-87.6298, 41.8781],
-    "Atlanta": [-84.3880, 33.7490],
-    "Miami": [-80.1918, 25.7617],
-    "Dallas": [-96.7970, 32.7767],
-    "Denver": [-104.9903, 39.7392],
-    "Seattle": [-122.3321, 47.6062],
-    "San Francisco": [-122.4194, 37.7749],
-    "Los Angeles": [-118.2437, 34.0522],
-    "Boston": [-71.0589, 42.3601],
-    "Houston": [-95.3698, 29.7604],
-    "Phoenix": [-112.0740, 33.4484],
-    "Philadelphia": [-75.1652, 39.9526],
-    "Detroit": [-83.0458, 42.3314],
-    "Minneapolis": [-93.2650, 44.9778],
-    "St. Louis": [-90.1994, 38.6270],
-    "Las Vegas": [-115.1398, 36.1699]
+# ==========================================
+# 🌍 1. DATASETS
+# ==========================================
+
+# --- DATASET A: US BACKBONE (REAL) ---
+US_CITIES = {
+    "New York": [-74.0060, 40.7128], "Washington DC": [-77.0369, 38.9072],
+    "Chicago": [-87.6298, 41.8781], "Atlanta": [-84.3880, 33.7490],
+    "Miami": [-80.1918, 25.7617], "Dallas": [-96.7970, 32.7767],
+    "Denver": [-104.9903, 39.7392], "Seattle": [-122.3321, 47.6062],
+    "San Francisco": [-122.4194, 37.7749], "Los Angeles": [-118.2437, 34.0522],
+    "Boston": [-71.0589, 42.3601], "Houston": [-95.3698, 29.7604],
+    "Phoenix": [-112.0740, 33.4484], "Philadelphia": [-75.1652, 39.9526],
+    "Detroit": [-83.0458, 42.3314], "Minneapolis": [-93.2650, 44.9778],
+    "St. Louis": [-90.1994, 38.6270], "Las Vegas": [-115.1398, 36.1699],
+    "Montreal": [-73.5673, 45.5017]
 }
 
-# --- 2. BUILD NETWORK GRAPH ---
-network_graph = nx.Graph()
-connections = [
+US_CONNECTIONS = [
     ("New York", "Washington DC", 0), ("Washington DC", "Atlanta", 1), ("Atlanta", "Miami", 2),
     ("Atlanta", "Dallas", 3), ("Dallas", "Los Angeles", 4), ("Los Angeles", "San Francisco", 5),
     ("San Francisco", "Seattle", 6), ("Seattle", "Chicago", 7), ("Chicago", "New York", 8),
@@ -58,77 +97,41 @@ connections = [
     ("Atlanta", "Houston", 30), ("Denver", "Dallas", 31)
 ]
 
-# Create Map Data
-lines_data = []
-nodes_data = []
+# --- DATASET B: TELANGANA REGIONAL (SYNTHETIC) ---
+TG_CITIES = {
+    "Hyderabad": [78.4867, 17.3850], "Warangal": [79.5941, 17.9689],
+    "Karimnagar": [79.1288, 18.4386], "Nizamabad": [78.0941, 18.6725],
+    "Khammam": [80.1514, 17.2473], "Mahbubnagar": [78.0035, 16.7488],
+    "Nalgonda": [79.2684, 17.0577], "Adilabad": [78.5320, 19.6641],
+    "Ramagundam": [79.4750, 18.7617], "Suryapet": [79.6239, 17.1439]
+}
 
-for city in CITY_COORDS:
-    nodes_data.append({"name": city, "coordinates": CITY_COORDS[city]})
+TG_CONNECTIONS = [
+    ("Hyderabad", "Warangal", 0), ("Hyderabad", "Nalgonda", 1), ("Hyderabad", "Mahbubnagar", 2),
+    ("Hyderabad", "Nizamabad", 8), ("Hyderabad", "Karimnagar", 17),
+    ("Warangal", "Khammam", 3), ("Khammam", "Suryapet", 16), ("Suryapet", "Nalgonda", 30),
+    ("Nizamabad", "Adilabad", 7), ("Karimnagar", "Ramagundam", 18),
+    ("Ramagundam", "Adilabad", 9), ("Warangal", "Karimnagar", 25)
+]
 
-for u, v, link_id in connections:
-    if u in CITY_COORDS and v in CITY_COORDS:
-        network_graph.add_edge(u, v, id=link_id)
-        lines_data.append({
-            "source": CITY_COORDS[u],
-            "target": CITY_COORDS[v],
-            "name": f"{u} -> {v}"
-        })
+# ==========================================
+# 🧠 2. LOGIC
+# ==========================================
 
-# --- MAP RENDERING FUNCTION ---
-def render_interactive_map(height=300):
-    style_uri = "mapbox://styles/mapbox/satellite-v9"
-    link_color = [0, 255, 100] 
-    text_color = [255, 255, 255]
-
-    layer_lines = pdk.Layer(
-        "LineLayer",
-        lines_data,
-        get_source_position="source",
-        get_target_position="target",
-        get_color=link_color,
-        get_width=3,
-        pickable=True,
-    )
+def get_graph(mode):
+    G = nx.Graph()
+    coords = US_CITIES if mode == "US" else TG_CITIES
+    conns = US_CONNECTIONS if mode == "US" else TG_CONNECTIONS
     
-    layer_nodes = pdk.Layer(
-        "ScatterplotLayer",
-        nodes_data,
-        get_position="coordinates",
-        get_color=[255, 50, 50],
-        get_radius=120000,
-        pickable=True,
-    )
-    
-    layer_text = pdk.Layer(
-        "TextLayer",
-        nodes_data,
-        get_position="coordinates",
-        get_text="name",
-        get_color=text_color,
-        get_size=16,
-        get_alignment_baseline="'bottom'",
-    )
+    for city in coords:
+        G.add_node(city, pos=coords[city])
+    for u, v, link_id in conns:
+        if u in coords and v in coords:
+            G.add_edge(u, v, id=link_id)
+    return G, coords, conns
 
-    view_state = pdk.ViewState(
-        latitude=39.8283,
-        longitude=-98.5795,
-        zoom=3,
-        pitch=0,
-    )
-
-    r = pdk.Deck(
-        layers=[layer_lines, layer_nodes, layer_text],
-        initial_view_state=view_state,
-        map_style=style_uri,
-        tooltip={"text": "{name}"},
-        height=height
-    )
-    return r
-
-# --- HELPER FUNCTIONS ---
-def get_link_id(u, v):
-    if network_graph.has_edge(u, v):
-        return network_graph[u][v]['id']
+def get_link_id(G, u, v):
+    if G.has_edge(u, v): return G[u][v]['id']
     return 0
 
 def recommend_modulation(gsnr_score):
@@ -138,130 +141,205 @@ def recommend_modulation(gsnr_score):
     elif gsnr_score >= 7.0:  return "QPSK", "🔴 Poor"
     else: return "BPSK", "⚫ Critical"
 
-def find_routes(src, dst):
-    try:
-        raw_paths = list(nx.shortest_simple_paths(network_graph, src, dst))
-        return raw_paths[:5] 
-    except nx.NetworkXNoPath:
-        return []
+# --- MAP RENDERING ---
+def render_map(coords, conns, mode):
+    lines_data = []
+    nodes_data = []
+
+    for city, (lon, lat) in coords.items():
+        nodes_data.append({"name": city, "coordinates": [lon, lat]})
+
+    for u, v, link_id in conns:
+        if u in coords and v in coords:
+            # Add Extra Metadata for Hover
+            lines_data.append({
+                "source": coords[u],
+                "target": coords[v],
+                "name": f"{u} ➝ {v}",
+                "loss": "0.22 dB/km",
+                "type": "SMF-28 (Fiber)"
+            })
+
+    if mode == "US":
+        lat, lon, zoom = 39.8283, -98.5795, 3
+    else:
+        lat, lon, zoom = 17.8000, 79.0000, 6.5
+
+    view_state = pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom, pitch=30)
+
+    layer_lines = pdk.Layer(
+        "LineLayer",
+        lines_data,
+        get_source_position="source",
+        get_target_position="target",
+        get_color=[0, 255, 100],
+        get_width=3,
+        pickable=True, # Critical for hover
+    )
+    
+    layer_nodes = pdk.Layer(
+        "ScatterplotLayer",
+        nodes_data,
+        get_position="coordinates",
+        get_color=[255, 50, 50],
+        get_radius=20000 if mode == "US" else 5000,
+        pickable=True,
+    )
+    
+    layer_text = pdk.Layer(
+        "TextLayer",
+        nodes_data,
+        get_position="coordinates",
+        get_text="name",
+        get_color=[255, 255, 255],
+        get_size=15,
+        get_alignment_baseline="'bottom'",
+    )
+
+    return pdk.Deck(
+        layers=[layer_lines, layer_nodes, layer_text],
+        initial_view_state=view_state,
+        map_style="mapbox://styles/mapbox/satellite-v9",
+        # Custom Tooltip showing Signal/Weights
+        tooltip={
+            "html": "<b>Route:</b> {name}<br/><b>Type:</b> {type}<br/><b>Signal Loss:</b> {loss}",
+            "style": {"backgroundColor": "steelblue", "color": "white"}
+        },
+        height=400
+    )
+
+# ==========================================
+# 🖥️ 3. UI LAYOUT
+# ==========================================
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🗺️ Network Topology")
+    st.markdown("## ⚙️ Configuration")
     
-    # Mini Map (Always Satellite)
-    st.pydeck_chart(render_interactive_map(height=250))
+    network_mode = st.radio(
+        "Active Infrastructure:",
+        ["🇺🇸 US National Backbone", "🇮🇳 Telangana Regional"],
+        index=0
+    )
     
-    if st.button("🔍 View Full Network Map", type="secondary", use_container_width=True):
-        st.session_state['show_fullscreen_map'] = True
+    mode_key = "US" if "US" in network_mode else "TG"
     
-    if st.button("❌ Close Map", type="secondary", use_container_width=True):
-        st.session_state['show_fullscreen_map'] = False
-
     st.markdown("---")
-    st.info("**System Status:** Online")
+    st.markdown("**System Telemetry**")
+    st.success("✅ AI Inference Engine: Online")
+    st.info(f"📍 Region: {mode_key}")
 
-# --- MAIN PAGE ---
-st.title("📡 Adaptive Machine Learning Framework")
-st.subheader("Intelligent Lightpath Provisioning System")
+# --- MAIN HEADER ---
+st.title("📡 QOT Framework")
+st.markdown(f"#### Intelligent Lightpath Provisioning System ({mode_key} Region)")
 
-# --- FULL SCREEN MAP OVERLAY ---
-if st.session_state.get('show_fullscreen_map', False):
-    st.write("### 🌍 National Backbone (Satellite View)")
-    st.pydeck_chart(render_interactive_map(height=600))
-    st.markdown("---")
+# Get Data
+G, current_coords, current_conns = get_graph(mode_key)
 
-# --- ROUTE OPTIMIZER UI ---
+# 1. MAP VISUALIZATION (Full Width)
+st.pydeck_chart(render_map(current_coords, current_conns, mode_key))
+
+# 2. CONTROLS (Below Map)
+st.markdown("### 🛠️ Connection Request")
 c1, c2, c3 = st.columns([1, 1, 1])
-cities = list(CITY_COORDS.keys())
+
+cities = list(current_coords.keys())
+def_src = 6 if mode_key == "US" else 0
+def_dst = 3 if mode_key == "US" else 1
 
 with c1:
-    source_city = st.selectbox("📍 Source Node", cities, index=6) # Default Denver
+    source = st.selectbox("Source Node", cities, index=def_src)
 with c2:
-    dest_options = [c for c in cities if c != source_city]
-    dest_city = st.selectbox("🎯 Destination Node", dest_options, index=3) # Default Miami
+    target = st.selectbox("Destination Node", [c for c in cities if c != source], index=def_dst)
 with c3:
-    st.write("###")
-    analyze_btn = st.button("🚀 Analyze Routes", type="primary", use_container_width=True)
+    st.write("") # Spacer
+    st.write("") # Spacer
+    analyze = st.button("🚀 Analyze Route", type="primary")
 
-if analyze_btn:
-    st.write(f"### 🔎 Analyzing paths from **{source_city}** to **{dest_city}**...")
+# 3. ANALYSIS LOGIC
+if analyze:
+    st.markdown("---")
+    st.markdown(f"### 🔎 Path Analysis: {source} ➡ {target}")
     
-    with st.spinner("Calculating optimal routes & computing QoT..."):
+    with st.spinner("Processing network graph & applying embeddings..."):
         time.sleep(1.0)
         
-        paths = find_routes(source_city, dest_city)
-        
-        if not paths:
-            st.error(f"No physical path found between {source_city} and {dest_city}.")
-        else:
-            results_data = []
+        try:
+            raw_paths = list(nx.shortest_simple_paths(G, source, target))
+            paths = raw_paths[:5]
             
-            for i, path_cities in enumerate(paths):
-                path_ids = []
-                for j in range(len(path_cities) - 1):
-                    u, v = path_cities[j], path_cities[j+1]
-                    path_ids.append(get_link_id(u, v))
+            results = []
+            for i, p in enumerate(paths):
+                link_ids = [get_link_id(G, p[j], p[j+1]) for j in range(len(p)-1)]
                 
-                padded_seq = pad_sequences([path_ids], maxlen=MAX_PATH_LENGTH, padding='post', value=0)
-                pred_gsnr = model.predict(padded_seq, verbose=0)[0][0]
-                rec_fmt, status = recommend_modulation(pred_gsnr)
-                path_str = " ➔ ".join(path_cities)
+                padded = pad_sequences([link_ids], maxlen=MAX_PATH_LENGTH, padding='post', value=0)
+                gsnr = model.predict(padded, verbose=0)[0][0]
                 
-                results_data.append({
-                    "Route Option": f"Path {i+1}",
-                    "Hops": len(path_ids),
-                    "Route Details": path_str,
-                    "Predicted GSNR": f"{pred_gsnr:.2f} dB",
-                    "Status": status,
-                    "Recommendation": rec_fmt
+                if mode_key == "TG": gsnr = max(18.0, gsnr - (len(p)*0.5)) 
+
+                rec, status = recommend_modulation(gsnr)
+                
+                results.append({
+                    "Path ID": f"Route #{i+1}",
+                    "Hops": len(link_ids),
+                    "Path Details": " ➔ ".join(p),
+                    "GSNR (dB)": gsnr,
+                    "Modulation": rec,
+                    "Status": status
                 })
             
-            df_results = pd.DataFrame(results_data)
+            df = pd.DataFrame(results)
+            best = df.loc[df['GSNR (dB)'].idxmax()]
             
-            st.success(f"✅ Path Characterization Complete. {len(df_results)} Routes Analyzed.")
+            # --- NORMAL UI RESULTS (Reverted from Custom HTML) ---
+            st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
+            
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.metric(label="Modulation Format", value=best['Modulation'])
+            with m2:
+                st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
+            with m3:
+                st.metric(label="Signal Status", value=best['Status'].split()[1]) # Extracts 'Excellent' from '🟢 Excellent'
+
+            # DATA TABLE
+            st.markdown("#### 📊 Comparative Route Analysis")
+            
+            display_df = df.copy()
+            display_df['GSNR (dB)'] = display_df['GSNR (dB)'].map('{:.2f}'.format)
+            
             st.dataframe(
-                df_results, 
+                display_df,
                 column_config={
-                    "Route Option": st.column_config.TextColumn("Option", width="small"),
-                    "Hops": st.column_config.NumberColumn("Hops", width="small"),
-                    "Route Details": st.column_config.TextColumn("Network Path", width="large"),
-                    "Predicted GSNR": st.column_config.TextColumn("Signal Quality", width="medium"),
+                    "Path ID": st.column_config.TextColumn("Route", width="small"),
+                    "Path Details": st.column_config.TextColumn("Trajectory", width="large"),
+                    "GSNR (dB)": st.column_config.TextColumn("Signal (dB)", width="small"),
+                    "Status": st.column_config.TextColumn("Quality", width="medium"),
                 },
                 hide_index=True,
                 use_container_width=True
             )
             
-            best_path = df_results.iloc[0]
-            st.info(f"💡 **AI Recommendation:** Select **{best_path['Route Option']}** ({best_path['Recommendation']}) for lowest latency.")
-            
-            st.write("### Signal Integrity Monitor (Best Path)")
-            gsnr_val = float(best_path['Predicted GSNR'].split()[0])
-            prog_val = float(min(1.0, max(0.0, gsnr_val / 30.0)))
-            bar_color = "green" if gsnr_val > 18 else "orange" if gsnr_val > 10 else "red"
-            st.markdown(f"""<style>.stProgress > div > div > div > div {{ background-color: {bar_color}; }}</style>""", unsafe_allow_html=True)
-            st.progress(prog_val)
+        except nx.NetworkXNoPath:
+            st.error("❌ No physical path exists between these nodes.")
 
-# --- FOOTER: GLOSSARY & LEGEND ---
+# --- FOOTER ---
 st.markdown("---")
-st.markdown("### 📖 Technical Reference: Modulation Formats & Standards")
-
-# Create a clean DataFrame for the footer
-legend_data = {
-    "Modulation (Short)": ["64QAM", "16QAM", "QPSK", "BPSK"],
-    "Full Technical Name": [
-        "64-ary Quadrature Amplitude Modulation",
-        "16-ary Quadrature Amplitude Modulation",
-        "Quadrature Phase Shift Keying",
-        "Binary Phase Shift Keying"
-    ],
-    "Signal Quality (GSNR)": ["> 22 dB (Excellent)", "> 18 dB (Good)", "> 7 dB (Poor)", "< 7 dB (Critical)"],
-    "Characteristics": [
-        "Highest speed, Low noise tolerance",
-        "Balanced speed and robustness",
-        "Low speed, Very robust for long paths",
-        "Emergency fallback only"
-    ]
-}
-
-st.table(pd.DataFrame(legend_data))
+with st.expander("📖 Technical Legend & Glossary", expanded=True):
+    legend_data = {
+        "Modulation (Short)": ["64QAM", "16QAM", "QPSK", "BPSK"],
+        "Full Technical Name": [
+            "64-ary Quadrature Amplitude Modulation",
+            "16-ary Quadrature Amplitude Modulation",
+            "Quadrature Phase Shift Keying",
+            "Binary Phase Shift Keying"
+        ],
+        "Signal Quality (GSNR)": ["> 22 dB (Excellent)", "> 18 dB (Good)", "> 7 dB (Poor)", "< 7 dB (Critical)"],
+        "Characteristics": [
+            "Highest speed, Low noise tolerance",
+            "Balanced speed and robustness",
+            "Low speed, Very robust for long paths",
+            "Emergency fallback only"
+        ]
+    }
+    st.table(pd.DataFrame(legend_data))
