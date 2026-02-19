@@ -180,7 +180,7 @@ if not st.session_state.get("user"):
             st.text_input("Operator Email", placeholder="admin@qot.com", label_visibility="collapsed", key="email_input")
             st.text_input("Authorization Key", type="password", placeholder="••••••••", label_visibility="collapsed", key="password_input")
             st.write("")
-            st.form_submit_button("Authenticate 🚀", use_container_width=True, on_click=process_login)
+            st.form_submit_button("Authenticate", use_container_width=True, on_click=process_login)
 
         if st.session_state.login_error:
             st.error(st.session_state.login_error)
@@ -189,7 +189,7 @@ if not st.session_state.get("user"):
 else:
     with st.sidebar:
         with st.sidebar:
-            if st.button("🚪 Logout", use_container_width=True):
+            if st.button("Logout", use_container_width=True):
                 try:
                     cookie_manager.delete("qot_auth_token")
                 except Exception:
@@ -226,39 +226,72 @@ else:
 
     if analyze:
         st.markdown("---")
+        
+        # 1. SHOW HEADER & TABLE FIRST
         st.markdown(f"### 🔎 Path Analysis: {source} ➡ {target}")
-
-        with st.spinner("Processing network graph & applying embeddings..."):
-            time.sleep(1.0)
-            try:
-                paths = list(nx.shortest_simple_paths(G, source, target))[:5]
+        st.markdown("#### 📊 Comparative Route Analysis")
+        
+        # We need to calculate the paths first to show the table
+        try:
+            paths = list(nx.shortest_simple_paths(G, source, target))[:5]
+            
+            # Create a placeholder for the table so we can show it immediately
+            table_placeholder = st.empty()
+            
+            # 2. RUN THE AI LOADING BELOW THE TABLE
+            with st.spinner("Processing network graph & applying embeddings..."):
+                # We do the heavy lifting (model prediction) inside the spinner
                 results = []
-
                 for i, p in enumerate(paths):
                     link_ids = [get_link_id(G, p[j], p[j+1]) for j in range(len(p)-1)]
                     padded = pad_sequences([link_ids], maxlen=MAX_PATH_LENGTH, padding='post', value=0)
+                    
+                    # AI Model Prediction
                     gsnr = model.predict(padded, verbose=0)[0][0]
-                    if mode_key == "TG": gsnr = max(18.0, gsnr - (len(p)*0.5))
-
+                    if mode_key == "TG": 
+                        gsnr = max(18.0, gsnr - (len(p)*0.5))
+                    
                     rec, status = recommend_modulation(gsnr)
-                    results.append({"Path ID": f"Route #{i+1}", "Hops": len(link_ids), "Path Details": " ➔ ".join(p), "GSNR (dB)": gsnr, "Modulation": rec, "Status": status})
-
+                    results.append({
+                        "Path ID": f"Route #{i+1}", 
+                        "Hops": len(link_ids), 
+                        "Path Details": " ➔ ".join(p), 
+                        "GSNR (dB)": gsnr, 
+                        "Modulation": rec, 
+                        "Status": status
+                    })
+                
+                # Small artificial delay to make the spinner visible as requested
+                time.sleep(1.0) 
+                
                 df = pd.DataFrame(results)
                 best = df.loc[df['GSNR (dB)'].idxmax()]
 
-                st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
-                m1, m2, m3 = st.columns(3)
-                with m1: st.metric(label="Modulation Format", value=best['Modulation'])
-                with m2: st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
-                with m3: st.metric(label="Signal Status", value=best['Status'].split()[1])
+            # 3. DISPLAY THE FINAL DATA
+            # Update the table placeholder with the final results
+            display_df = df.copy()
+            display_df['GSNR (dB)'] = display_df['GSNR (dB)'].map('{:.2f}'.format)
+            table_placeholder.dataframe(
+                display_df, 
+                column_config={
+                    "Path ID": st.column_config.TextColumn("Route", width="small"), 
+                    "Path Details": st.column_config.TextColumn("Trajectory", width="large"), 
+                    "GSNR (dB)": st.column_config.TextColumn("Signal (dB)", width="small"), 
+                    "Status": st.column_config.TextColumn("Quality", width="medium")
+                }, 
+                hide_index=True, 
+                use_container_width=True
+            )
 
-                st.markdown("#### 📊 Comparative Route Analysis")
-                display_df = df.copy()
-                display_df['GSNR (dB)'] = display_df['GSNR (dB)'].map('{:.2f}'.format)
-                st.dataframe(display_df, column_config={"Path ID": st.column_config.TextColumn("Route", width="small"), "Path Details": st.column_config.TextColumn("Trajectory", width="large"), "GSNR (dB)": st.column_config.TextColumn("Signal (dB)", width="small"), "Status": st.column_config.TextColumn("Quality", width="medium")}, hide_index=True, use_container_width=True)
+            # 4. SHOW RECOMMENDATION AT THE VERY BOTTOM
+            st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
+            m1, m2, m3 = st.columns(3)
+            with m1: st.metric(label="Modulation Format", value=best['Modulation'])
+            with m2: st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
+            with m3: st.metric(label="Signal Status", value=best['Status'].split()[1])
 
-            except nx.NetworkXNoPath:
-                st.error("❌ No physical path exists between these nodes.")
+        except nx.NetworkXNoPath:
+            st.error("❌ No physical path exists between these nodes.")
 
     st.markdown("---")
     with st.expander("📖 Technical Legend & Glossary", expanded=True):
