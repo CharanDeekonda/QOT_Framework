@@ -9,22 +9,13 @@ import pydeck as pdk
 import pyrebase
 import extra_streamlit_components as stx
 
-# Page configuration
 st.set_page_config(page_title="QOT Framework", page_icon="📡", layout="wide", initial_sidebar_state="expanded")
 
-# Firebase configuration
 firebaseConfig = st.secrets["firebase"]
-
-# Initialize Firebase
 firebase = pyrebase.initialize_app(firebaseConfig)
 auth = firebase.auth()
-
-# ==========================================
-# 🔒 COOKIE + SESSION AUTH (COMPATIBLE FIX)
-# ==========================================
 cookie_manager = stx.CookieManager(key="qot_cookie_manager")
 
-# 1. Start session state initialization
 if "user" not in st.session_state:
     st.session_state.user = None
 if "login_error" not in st.session_state:
@@ -32,20 +23,13 @@ if "login_error" not in st.session_state:
 if "logged_out" not in st.session_state:
     st.session_state.logged_out = False
 
-# 2. SYNC DELAY: Give the browser a moment to return the cookie
 time.sleep(0.1) 
 stored_token = cookie_manager.get("qot_auth_token")
 
-# 3. RELOAD LOGIC: Catch the cookie and force a rerun if needed
 if stored_token and st.session_state.user is None and not st.session_state.logged_out:
     st.session_state.user = {"idToken": stored_token}
-    st.rerun() # Forces the dashboard to show immediately on refresh
-# ==========================================
+    st.rerun()
 
-# ==========================================
-
-
-# Custom CSS
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; margin-top: 0rem !important; }
@@ -59,7 +43,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Load AI Model
 MODEL_PATH = "models/saved_models/qot_model.keras"
 MAX_PATH_LENGTH = 42
 
@@ -73,7 +56,6 @@ except Exception as e:
     st.error(f"Error loading model: {e}")
     st.stop()
 
-# Datasets
 US_CITIES = {
     "New York": [-74.0060, 40.7128], "Washington DC": [-77.0369, 38.9072], "Chicago": [-87.6298, 41.8781],
     "Atlanta": [-84.3880, 33.7490], "Miami": [-80.1918, 25.7617], "Dallas": [-96.7970, 32.7767],
@@ -111,7 +93,6 @@ TG_CONNECTIONS = [
     ("Karimnagar", "Ramagundam", 18), ("Ramagundam", "Adilabad", 9), ("Warangal", "Karimnagar", 25)
 ]
 
-# Graph Utilities
 def get_graph(mode):
     G, coords, conns = nx.Graph(), US_CITIES if mode == "US" else TG_CITIES, US_CONNECTIONS if mode == "US" else TG_CONNECTIONS
     for city in coords: G.add_node(city, pos=coords[city])
@@ -129,7 +110,6 @@ def recommend_modulation(gsnr_score):
     elif gsnr_score >= 7.0:  return "QPSK", "🔴 Poor"
     else: return "BPSK", "⚫ Critical"
 
-# Map Renderer
 def render_map(coords, conns, mode):
     lines_data = [{"source": coords[u], "target": coords[v], "name": f"{u} ➝ {v}", "loss": "0.22 dB/km", "type": "SMF-28"} for u, v, _ in conns if u in coords and v in coords]
     nodes_data = [{"name": city, "coordinates": [lon, lat]} for city, (lon, lat) in coords.items()]
@@ -151,27 +131,32 @@ def process_login():
     email = st.session_state.email_input
     password = st.session_state.password_input
 
-    if email and password:
-        try:
-            user = auth.sign_in_with_email_and_password(email, password)
+    if not email or not password:
+        st.session_state.login_error = "⚠️ Please enter both Email and Key."
+        return
 
-            cookie_manager.set(
-                "qot_auth_token",
-                user["idToken"],
-                max_age=86400
-            )
+    try:
+        user = auth.sign_in_with_email_and_password(email, password)
+        cookie_manager.set("qot_auth_token", user["idToken"], max_age=86400)
+        st.session_state.user = {"idToken": user["idToken"]}
+        st.session_state.logged_out = False
+        st.session_state.login_error = None
+        st.toast("✅ Welcome, Operator!", icon="👨‍💻")
+        st.rerun()
+    except Exception as e:
+        error_msg = str(e)
+        # Specific triggers for the Error Popups
+        if "EMAIL_NOT_FOUND" in error_msg:
+            st.session_state.login_error = "❌ Invalid Email: Account not found."
+        elif "INVALID_PASSWORD" in error_msg:
+            st.session_state.login_error = "❌ Invalid Password: Key does not match."
+        else:
+            st.session_state.login_error = "❌ Login Error: Unauthorized Access."
 
-            # ⭐ STEP 3: Reset the flag on successful login
-            st.session_state.user = {"idToken": user["idToken"]}
-            st.session_state.logged_out = False
-            st.session_state.login_error = None
+# --- Place this right above your login form in app.py ---
+if st.session_state.get("login_error"):
+    st.error(st.session_state.login_error)
 
-            st.rerun()
-
-        except Exception:
-            st.session_state.login_error = "❌ Authentication Failed"
-
-# UI Layout: Login Screen
 if not st.session_state.get("user"):
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -184,25 +169,21 @@ if not st.session_state.get("user"):
 
         if st.session_state.login_error:
             st.error(st.session_state.login_error)
-
-# UI Layout: Main Dashboard
 else:
     with st.sidebar:
-        with st.sidebar:
-            if st.button("Logout", use_container_width=True):
-                try:
-                    cookie_manager.delete("qot_auth_token")
-                except Exception:
-                    pass # Ignore if already deleted
-                st.session_state.user = None
-                st.session_state.login_error = None
-                st.session_state.logged_out = True
-                st.rerun()
+        if st.button("Logout", use_container_width=True):
+            try:
+                cookie_manager.delete("qot_auth_token")
+            except Exception:
+                pass 
+            st.session_state.user = None
+            st.session_state.login_error = None
+            st.session_state.logged_out = True
+            st.rerun()
         st.markdown("---")
         st.markdown("## ⚙️ Configuration")
         network_mode = st.radio("Active Infrastructure:", ["🇺🇸 US National Backbone", "🇮🇳 Telangana Regional"], index=0)
         mode_key = "US" if "US" in network_mode else "TG"
-
         st.markdown("---")
         st.success("✅ AI Engine: Online")
         st.info(f"📍 Region: {mode_key}")
@@ -215,83 +196,87 @@ else:
 
     st.markdown("### 🛠️ Connection Request")
     c1, c2, c3 = st.columns([1, 1, 1])
-    cities = list(current_coords.keys())
+    
+    cities = ["-- Select Node --"] + list(current_coords.keys())
 
-    with c1: source = st.selectbox("Source Node", cities, index=6 if mode_key == "US" else 0)
-    with c2: target = st.selectbox("Destination Node", [c for c in cities if c != source], index=3 if mode_key == "US" else 1)
+    with c1: source = st.selectbox("Source Node", cities, index=0)
+    with c2: target = st.selectbox("Destination Node", cities, index=0)
     with c3:
         st.write("")
         st.write("")
         analyze = st.button("🚀 Analyze Route", type="primary")
 
     if analyze:
-        st.markdown("---")
-        
-        # 1. SHOW HEADER & TABLE FIRST
-        st.markdown(f"### 🔎 Path Analysis: {source} ➡ {target}")
-        st.markdown("#### 📊 Comparative Route Analysis")
-        
-        # We need to calculate the paths first to show the table
-        try:
-            paths = list(nx.shortest_simple_paths(G, source, target))[:5]
+    # 1. Validation Logic for Test Cases
+        if source == "-- Select Node --" and target == "-- Select Node --":
+            st.error("❌ TEST CASE FAILURE: Please select both Source and Destination nodes.")
+            st.toast("Input Required", icon="🚫")
             
-            # Create a placeholder for the table so we can show it immediately
-            table_placeholder = st.empty()
+        elif source == "-- Select Node --":
+            st.error("❌ TEST CASE FAILURE: Source node is missing. Please select a starting point.")
+            st.toast("Source Missing", icon="📍")
             
-            # 2. RUN THE AI LOADING BELOW THE TABLE
-            with st.spinner("Processing network graph & applying embeddings..."):
-                # We do the heavy lifting (model prediction) inside the spinner
-                results = []
-                for i, p in enumerate(paths):
-                    link_ids = [get_link_id(G, p[j], p[j+1]) for j in range(len(p)-1)]
-                    padded = pad_sequences([link_ids], maxlen=MAX_PATH_LENGTH, padding='post', value=0)
-                    
-                    # AI Model Prediction
-                    gsnr = model.predict(padded, verbose=0)[0][0]
-                    if mode_key == "TG": 
-                        gsnr = max(18.0, gsnr - (len(p)*0.5))
-                    
-                    rec, status = recommend_modulation(gsnr)
-                    results.append({
-                        "Path ID": f"Route #{i+1}", 
-                        "Hops": len(link_ids), 
-                        "Path Details": " ➔ ".join(p), 
-                        "GSNR (dB)": gsnr, 
-                        "Modulation": rec, 
-                        "Status": status
-                    })
+        elif target == "-- Select Node --":
+            st.error("❌ TEST CASE FAILURE: Destination node is missing. Please select an endpoint.")
+            st.toast("Destination Missing", icon="🏁")
+            
+        elif source == target:
+            st.error("❌ TEST CASE FAILURE: Loopback detected. Source and Destination cannot be the same.")
+            st.toast("Invalid Path", icon="🔁")
+        else:
+            st.markdown("---")
+            st.markdown(f"### 🔎 Path Analysis: {source} ➡ {target}")
+            st.markdown("#### 📊 Comparative Route Analysis")
+            
+            try:
+                paths = list(nx.shortest_simple_paths(G, source, target))[:5]
+                table_placeholder = st.empty()
                 
-                # Small artificial delay to make the spinner visible as requested
-                time.sleep(1.0) 
-                
-                df = pd.DataFrame(results)
-                best = df.loc[df['GSNR (dB)'].idxmax()]
+                with st.spinner("Processing network graph & applying embeddings..."):
+                    results = []
+                    for i, p in enumerate(paths):
+                        link_ids = [get_link_id(G, p[j], p[j+1]) for j in range(len(p)-1)]
+                        padded = pad_sequences([link_ids], maxlen=MAX_PATH_LENGTH, padding='post', value=0)
+                        gsnr = model.predict(padded, verbose=0)[0][0]
+                        if mode_key == "TG": 
+                            gsnr = max(18.0, gsnr - (len(p)*0.5))
+                        rec, status = recommend_modulation(gsnr)
+                        results.append({
+                            "Path ID": f"Route #{i+1}", 
+                            "Hops": len(link_ids), 
+                            "Path Details": " ➔ ".join(p), 
+                            "GSNR (dB)": gsnr, 
+                            "Modulation": rec, 
+                            "Status": status
+                        })
+                    time.sleep(1.0) 
+                    df = pd.DataFrame(results)
+                    best = df.loc[df['GSNR (dB)'].idxmax()]
 
-            # 3. DISPLAY THE FINAL DATA
-            # Update the table placeholder with the final results
-            display_df = df.copy()
-            display_df['GSNR (dB)'] = display_df['GSNR (dB)'].map('{:.2f}'.format)
-            table_placeholder.dataframe(
-                display_df, 
-                column_config={
-                    "Path ID": st.column_config.TextColumn("Route", width="small"), 
-                    "Path Details": st.column_config.TextColumn("Trajectory", width="large"), 
-                    "GSNR (dB)": st.column_config.TextColumn("Signal (dB)", width="small"), 
-                    "Status": st.column_config.TextColumn("Quality", width="medium")
-                }, 
-                hide_index=True, 
-                use_container_width=True
-            )
+                display_df = df.copy()
+                display_df['GSNR (dB)'] = display_df['GSNR (dB)'].map('{:.2f}'.format)
+                table_placeholder.dataframe(
+                    display_df, 
+                    column_config={
+                        "Path ID": st.column_config.TextColumn("Route", width="small"), 
+                        "Path Details": st.column_config.TextColumn("Trajectory", width="large"), 
+                        "GSNR (dB)": st.column_config.TextColumn("Signal (dB)", width="small"), 
+                        "Status": st.column_config.TextColumn("Quality", width="medium")
+                    }, 
+                    hide_index=True, 
+                    use_container_width=True
+                )
 
-            # 4. SHOW RECOMMENDATION AT THE VERY BOTTOM
-            st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
-            m1, m2, m3 = st.columns(3)
-            with m1: st.metric(label="Modulation Format", value=best['Modulation'])
-            with m2: st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
-            with m3: st.metric(label="Signal Status", value=best['Status'].split()[1])
+                st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
+                m1, m2, m3 = st.columns(3)
+                with m1: st.metric(label="Modulation Format", value=best['Modulation'])
+                with m2: st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
+                with m3: st.metric(label="Signal Status", value=best['Status'].split()[1])
+                st.toast("Analysis Complete!", icon="🚀")
 
-        except nx.NetworkXNoPath:
-            st.error("❌ No physical path exists between these nodes.")
+            except nx.NetworkXNoPath:
+                st.error("❌ TEST CASE RESULT: No physical path exists between these nodes.")
+                st.toast("Pathfinding Error", icon="📡")
 
     st.markdown("---")
     with st.expander("📖 Technical Legend & Glossary", expanded=True):
