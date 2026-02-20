@@ -35,7 +35,6 @@ if stored_token and st.session_state.user is None and not st.session_state.logge
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; margin-top: 0rem !important; }
-    header { visibility: hidden; }
     div[data-testid="stDeckGlJsonChart"] { border: 1px solid rgba(128, 128, 128, 0.5); border-radius: 8px; padding: 5px; background-color: #0e1117; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; height: 3em; background-color: #ff4b4b; color: white; border: none; }
     .login-card { background-color: var(--secondary-background-color); padding: 2.5rem; border-radius: 1rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); text-align: center; margin-bottom: 1.5rem; }
