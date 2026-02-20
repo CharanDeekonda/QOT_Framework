@@ -11,6 +11,7 @@ import extra_streamlit_components as stx
 
 st.set_page_config(page_title="QOT Framework", page_icon="📡", layout="wide", initial_sidebar_state="expanded")
 
+# --- AUTHENTICATION SETUP ---
 firebaseConfig = st.secrets["firebase"]
 firebase = pyrebase.initialize_app(firebaseConfig)
 auth = firebase.auth()
@@ -30,6 +31,7 @@ if stored_token and st.session_state.user is None and not st.session_state.logge
     st.session_state.user = {"idToken": stored_token}
     st.rerun()
 
+# --- STYLING ---
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; margin-top: 0rem !important; }
@@ -43,98 +45,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-MODEL_PATH = "models/saved_models/qot_model.keras"
-MAX_PATH_LENGTH = 42
-
-@st.cache_resource
-def load_model():
-    return tf.keras.models.load_model(MODEL_PATH)
-
-try:
-    model = load_model()
-except Exception as e:
-    st.error(f"Error loading model: {e}")
-    st.stop()
-
-US_CITIES = {
-    "New York": [-74.0060, 40.7128], "Washington DC": [-77.0369, 38.9072], "Chicago": [-87.6298, 41.8781],
-    "Atlanta": [-84.3880, 33.7490], "Miami": [-80.1918, 25.7617], "Dallas": [-96.7970, 32.7767],
-    "Denver": [-104.9903, 39.7392], "Seattle": [-122.3321, 47.6062], "San Francisco": [-122.4194, 37.7749],
-    "Los Angeles": [-118.2437, 34.0522], "Boston": [-71.0589, 42.3601], "Houston": [-95.3698, 29.7604],
-    "Phoenix": [-112.0740, 33.4484], "Philadelphia": [-75.1652, 39.9526], "Detroit": [-83.0458, 42.3314],
-    "Minneapolis": [-93.2650, 44.9778], "St. Louis": [-90.1994, 38.6270], "Las Vegas": [-115.1398, 36.1699],
-    "Montreal": [-73.5673, 45.5017]
-}
-
-US_CONNECTIONS = [
-    ("New York", "Washington DC", 0), ("Washington DC", "Atlanta", 1), ("Atlanta", "Miami", 2),
-    ("Atlanta", "Dallas", 3), ("Dallas", "Los Angeles", 4), ("Los Angeles", "San Francisco", 5),
-    ("San Francisco", "Seattle", 6), ("Seattle", "Chicago", 7), ("Chicago", "New York", 8),
-    ("Chicago", "Denver", 9), ("Denver", "San Francisco", 10), ("New York", "Boston", 14),
-    ("Houston", "Dallas", 13), ("Miami", "Houston", 16), ("Detroit", "Chicago", 17),
-    ("Minneapolis", "Chicago", 18), ("St. Louis", "Chicago", 19), ("St. Louis", "Dallas", 20),
-    ("Phoenix", "Los Angeles", 21), ("Phoenix", "Dallas", 22), ("Las Vegas", "Los Angeles", 23),
-    ("Las Vegas", "Denver", 24), ("Philadelphia", "New York", 25), ("Philadelphia", "Washington DC", 26),
-    ("Seattle", "Denver", 27), ("Boston", "Montreal", 28), ("Detroit", "New York", 29),
-    ("Atlanta", "Houston", 30), ("Denver", "Dallas", 31)
-]
-
-TG_CITIES = {
-    "Hyderabad": [78.4867, 17.3850], "Warangal": [79.5941, 17.9689], "Karimnagar": [79.1288, 18.4386],
-    "Nizamabad": [78.0941, 18.6725], "Khammam": [80.1514, 17.2473], "Mahbubnagar": [78.0035, 16.7488],
-    "Nalgonda": [79.2684, 17.0577], "Adilabad": [78.5320, 19.6641], "Ramagundam": [79.4750, 18.7617],
-    "Suryapet": [79.6239, 17.1439]
-}
-
-TG_CONNECTIONS = [
-    ("Hyderabad", "Warangal", 0), ("Hyderabad", "Nalgonda", 1), ("Hyderabad", "Mahbubnagar", 2),
-    ("Hyderabad", "Nizamabad", 8), ("Hyderabad", "Karimnagar", 17), ("Warangal", "Khammam", 3),
-    ("Khammam", "Suryapet", 16), ("Suryapet", "Nalgonda", 30), ("Nizamabad", "Adilabad", 7),
-    ("Karimnagar", "Ramagundam", 18), ("Ramagundam", "Adilabad", 9), ("Warangal", "Karimnagar", 25)
-]
-
-def get_graph(mode):
-    G, coords, conns = nx.Graph(), US_CITIES if mode == "US" else TG_CITIES, US_CONNECTIONS if mode == "US" else TG_CONNECTIONS
-    for city in coords: G.add_node(city, pos=coords[city])
-    for u, v, link_id in conns:
-        if u in coords and v in coords: G.add_edge(u, v, id=link_id)
-    return G, coords, conns
-
-def get_link_id(G, u, v):
-    return G[u][v]['id'] if G.has_edge(u, v) else 0
-
-def recommend_modulation(gsnr_score):
-    if gsnr_score >= 22.0: return "64QAM", "🟢 Excellent"
-    elif gsnr_score >= 18.0: return "16QAM", "🔵 Good"
-    elif gsnr_score >= 11.0: return "8QAM", "🟠 Moderate"
-    elif gsnr_score >= 7.0:  return "QPSK", "🔴 Poor"
-    else: return "BPSK", "⚫ Critical"
-
-def render_map(coords, conns, mode):
-    lines_data = [{"source": coords[u], "target": coords[v], "name": f"{u} ➝ {v}", "loss": "0.22 dB/km", "type": "SMF-28"} for u, v, _ in conns if u in coords and v in coords]
-    nodes_data = [{"name": city, "coordinates": [lon, lat]} for city, (lon, lat) in coords.items()]
-    lat, lon, zoom = (39.8283, -98.5795, 3) if mode == "US" else (17.8000, 79.0000, 6.5)
-
-    return pdk.Deck(
-        layers=[
-            pdk.Layer("LineLayer", lines_data, get_source_position="source", get_target_position="target", get_color=[0, 255, 100], get_width=3, pickable=True),
-            pdk.Layer("ScatterplotLayer", nodes_data, get_position="coordinates", get_color=[255, 50, 50], get_radius=20000 if mode == "US" else 5000, pickable=True),
-            pdk.Layer("TextLayer", nodes_data, get_position="coordinates", get_text="name", get_color=[0, 255, 255], get_size=18, get_alignment_baseline="'bottom'")
-        ],
-        initial_view_state=pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom, pitch=30),
-        map_style="mapbox://styles/mapbox/dark-v10",
-        tooltip={"html": "<b>Route:</b> {name}<br/><b>Type:</b> {type}<br/><b>Loss:</b> {loss}", "style": {"backgroundColor": "#0f172a", "color": "white", "border": "1px solid #00ff62"}},
-        height=400
-    )
-
+# --- LOGIN LOGIC ---
 def process_login():
     email = st.session_state.email_input
     password = st.session_state.password_input
-
     if not email or not password:
         st.session_state.login_error = "⚠️ Please enter both Email and Key."
         return
-
     try:
         user = auth.sign_in_with_email_and_password(email, password)
         cookie_manager.set("qot_auth_token", user["idToken"], max_age=86400)
@@ -145,7 +62,6 @@ def process_login():
         st.rerun()
     except Exception as e:
         error_msg = str(e)
-        # Specific triggers for the Error Popups
         if "EMAIL_NOT_FOUND" in error_msg:
             st.session_state.login_error = "❌ Invalid Email: Account not found."
         elif "INVALID_PASSWORD" in error_msg:
@@ -153,23 +69,105 @@ def process_login():
         else:
             st.session_state.login_error = "❌ Login Error: Unauthorized Access."
 
-# --- Place this right above your login form in app.py ---
-if st.session_state.get("login_error"):
-    st.error(st.session_state.login_error)
-
+# --- CONDITIONAL RENDERING ---
 if not st.session_state.get("user"):
+    # SHOW ONLY LOGIN SCREEN
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         st.markdown("<br><br><br><div class='login-card'><h2 class='login-title'>🔐 Security Gateway</h2><p class='login-subtitle'>Authenticate to access the QOT Framework.</p></div>", unsafe_allow_html=True)
+        if st.session_state.get("login_error"):
+            st.error(st.session_state.login_error)
         with st.form("login_form", clear_on_submit=True):
             st.text_input("Operator Email", placeholder="admin@qot.com", label_visibility="collapsed", key="email_input")
             st.text_input("Authorization Key", type="password", placeholder="••••••••", label_visibility="collapsed", key="password_input")
             st.write("")
             st.form_submit_button("Authenticate", use_container_width=True, on_click=process_login)
-
-        if st.session_state.login_error:
-            st.error(st.session_state.login_error)
 else:
+    # --- MAIN DASHBOARD (ONLY ACCESSIBLE IF LOGGED IN) ---
+    
+    # 1. Model Loading
+    MODEL_PATH = "models/saved_models/qot_model.keras"
+    MAX_PATH_LENGTH = 42
+
+    @st.cache_resource
+    def load_model():
+        return tf.keras.models.load_model(MODEL_PATH)
+
+    try:
+        model = load_model()
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        st.stop()
+
+    # 2. Data Definitions
+    US_CITIES = {
+        "New York": [-74.0060, 40.7128], "Washington DC": [-77.0369, 38.9072], "Chicago": [-87.6298, 41.8781],
+        "Atlanta": [-84.3880, 33.7490], "Miami": [-80.1918, 25.7617], "Dallas": [-96.7970, 32.7767],
+        "Denver": [-104.9903, 39.7392], "Seattle": [-122.3321, 47.6062], "San Francisco": [-122.4194, 37.7749],
+        "Los Angeles": [-118.2437, 34.0522], "Boston": [-71.0589, 42.3601], "Houston": [-95.3698, 29.7604],
+        "Phoenix": [-112.0740, 33.4484], "Philadelphia": [-75.1652, 39.9526], "Detroit": [-83.0458, 42.3314],
+        "Minneapolis": [-93.2650, 44.9778], "St. Louis": [-90.1994, 38.6270], "Las Vegas": [-115.1398, 36.1699],
+        "Montreal": [-73.5673, 45.5017]
+    }
+    US_CONNECTIONS = [
+        ("New York", "Washington DC", 0), ("Washington DC", "Atlanta", 1), ("Atlanta", "Miami", 2),
+        ("Atlanta", "Dallas", 3), ("Dallas", "Los Angeles", 4), ("Los Angeles", "San Francisco", 5),
+        ("San Francisco", "Seattle", 6), ("Seattle", "Chicago", 7), ("Chicago", "New York", 8),
+        ("Chicago", "Denver", 9), ("Denver", "San Francisco", 10), ("New York", "Boston", 14),
+        ("Houston", "Dallas", 13), ("Miami", "Houston", 16), ("Detroit", "Chicago", 17),
+        ("Minneapolis", "Chicago", 18), ("St. Louis", "Chicago", 19), ("St. Louis", "Dallas", 20),
+        ("Phoenix", "Los Angeles", 21), ("Phoenix", "Dallas", 22), ("Las Vegas", "Los Angeles", 23),
+        ("Las Vegas", "Denver", 24), ("Philadelphia", "New York", 25), ("Philadelphia", "Washington DC", 26),
+        ("Seattle", "Denver", 27), ("Boston", "Montreal", 28), ("Detroit", "New York", 29),
+        ("Atlanta", "Houston", 30), ("Denver", "Dallas", 31)
+    ]
+    TG_CITIES = {
+        "Hyderabad": [78.4867, 17.3850], "Warangal": [79.5941, 17.9689], "Karimnagar": [79.1288, 18.4386],
+        "Nizamabad": [78.0941, 18.6725], "Khammam": [80.1514, 17.2473], "Mahbubnagar": [78.0035, 16.7488],
+        "Nalgonda": [79.2684, 17.0577], "Adilabad": [78.5320, 19.6641], "Ramagundam": [79.4750, 18.7617],
+        "Suryapet": [79.6239, 17.1439]
+    }
+    TG_CONNECTIONS = [
+        ("Hyderabad", "Warangal", 0), ("Hyderabad", "Nalgonda", 1), ("Hyderabad", "Mahbubnagar", 2),
+        ("Hyderabad", "Nizamabad", 8), ("Hyderabad", "Karimnagar", 17), ("Warangal", "Khammam", 3),
+        ("Khammam", "Suryapet", 16), ("Suryapet", "Nalgonda", 30), ("Nizamabad", "Adilabad", 7),
+        ("Karimnagar", "Ramagundam", 18), ("Ramagundam", "Adilabad", 9), ("Warangal", "Karimnagar", 25)
+    ]
+
+    def get_graph(mode):
+        G, coords, conns = nx.Graph(), US_CITIES if mode == "US" else TG_CITIES, US_CONNECTIONS if mode == "US" else TG_CONNECTIONS
+        for city in coords: G.add_node(city, pos=coords[city])
+        for u, v, link_id in conns:
+            if u in coords and v in coords: G.add_edge(u, v, id=link_id)
+        return G, coords, conns
+
+    def get_link_id(G, u, v):
+        return G[u][v]['id'] if G.has_edge(u, v) else 0
+
+    def recommend_modulation(gsnr_score):
+        if gsnr_score >= 22.0: return "64QAM", "🟢 Excellent"
+        elif gsnr_score >= 18.0: return "16QAM", "🔵 Good"
+        elif gsnr_score >= 11.0: return "8QAM", "🟠 Moderate"
+        elif gsnr_score >= 7.0:  return "QPSK", "🔴 Poor"
+        else: return "BPSK", "⚫ Critical"
+
+    def render_map(coords, conns, mode):
+        lines_data = [{"source": coords[u], "target": coords[v], "name": f"{u} ➝ {v}", "loss": "0.22 dB/km", "type": "SMF-28"} for u, v, _ in conns if u in coords and v in coords]
+        nodes_data = [{"name": city, "coordinates": [lon, lat]} for city, (lon, lat) in coords.items()]
+        lat, lon, zoom = (39.8283, -98.5795, 3) if mode == "US" else (17.8000, 79.0000, 6.5)
+        return pdk.Deck(
+            layers=[
+                pdk.Layer("LineLayer", lines_data, get_source_position="source", get_target_position="target", get_color=[0, 255, 100], get_width=3, pickable=True),
+                pdk.Layer("ScatterplotLayer", nodes_data, get_position="coordinates", get_color=[255, 50, 50], get_radius=20000 if mode == "US" else 5000, pickable=True),
+                pdk.Layer("TextLayer", nodes_data, get_position="coordinates", get_text="name", get_color=[0, 255, 255], get_size=18, get_alignment_baseline="'bottom'")
+            ],
+            initial_view_state=pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom, pitch=30),
+            map_style="mapbox://styles/mapbox/dark-v10",
+            tooltip={"html": "<b>Route:</b> {name}<br/><b>Type:</b> {type}<br/><b>Loss:</b> {loss}", "style": {"backgroundColor": "#0f172a", "color": "white", "border": "1px solid #00ff62"}},
+            height=400
+        )
+
+    # 3. Sidebar and Interface
     with st.sidebar:
         if st.button("Logout", use_container_width=True):
             try:
@@ -196,9 +194,7 @@ else:
 
     st.markdown("### 🛠️ Connection Request")
     c1, c2, c3 = st.columns([1, 1, 1])
-    
     cities = ["-- Select Node --"] + list(current_coords.keys())
-
     with c1: source = st.selectbox("Source Node", cities, index=0)
     with c2: target = st.selectbox("Destination Node", cities, index=0)
     with c3:
@@ -207,19 +203,15 @@ else:
         analyze = st.button("🚀 Analyze Route", type="primary")
 
     if analyze:
-    # 1. Validation Logic for Test Cases
         if source == "-- Select Node --" and target == "-- Select Node --":
             st.error("❌ TEST CASE FAILURE: Please select both Source and Destination nodes.")
             st.toast("Input Required", icon="🚫")
-            
         elif source == "-- Select Node --":
             st.error("❌ TEST CASE FAILURE: Source node is missing. Please select a starting point.")
             st.toast("Source Missing", icon="📍")
-            
         elif target == "-- Select Node --":
             st.error("❌ TEST CASE FAILURE: Destination node is missing. Please select an endpoint.")
             st.toast("Destination Missing", icon="🏁")
-            
         elif source == target:
             st.error("❌ TEST CASE FAILURE: Loopback detected. Source and Destination cannot be the same.")
             st.toast("Invalid Path", icon="🔁")
@@ -227,11 +219,9 @@ else:
             st.markdown("---")
             st.markdown(f"### 🔎 Path Analysis: {source} ➡ {target}")
             st.markdown("#### 📊 Comparative Route Analysis")
-            
             try:
                 paths = list(nx.shortest_simple_paths(G, source, target))[:5]
                 table_placeholder = st.empty()
-                
                 with st.spinner("Processing network graph & applying embeddings..."):
                     results = []
                     for i, p in enumerate(paths):
@@ -266,14 +256,12 @@ else:
                     hide_index=True, 
                     use_container_width=True
                 )
-
                 st.success(f"💡 AI Recommendation: {best['Path ID']} ({best['Modulation']})")
                 m1, m2, m3 = st.columns(3)
                 with m1: st.metric(label="Modulation Format", value=best['Modulation'])
                 with m2: st.metric(label="Predicted GSNR", value=f"{best['GSNR (dB)']:.2f} dB")
                 with m3: st.metric(label="Signal Status", value=best['Status'].split()[1])
                 st.toast("Analysis Complete!", icon="🚀")
-
             except nx.NetworkXNoPath:
                 st.error("❌ TEST CASE RESULT: No physical path exists between these nodes.")
                 st.toast("Pathfinding Error", icon="📡")
